@@ -1,0 +1,6 @@
+ultralytics>=8.0.0
+gradio>=4.0.0
+opencv-python
+shapely
+PyYAML
+numpy

@@ -1,0 +1,36 @@
+[
+  {
+    "backend": "ONNX Runtime",
+    "model_path": "weights/best.onnx",
+    "total_frames": 300,
+    "warmup_frames": 30,
+    "mean_ms": 12.486730333548621,
+    "median_ms": 12.221400000271387,
+    "p95_ms": 14.876599998387974,
+    "p99_ms": 16.329500002029818,
+    "min_ms": 10.266199999023229,
+    "max_ms": 17.325200002233032,
+    "std_ms": 1.2351838367045183,
+    "fps": 80.08501611612914,
+    "gpu_memory_mb": 0.1650390625,
+    "cpu_memory_mb": 2039.72265625,
+    "avg_detections": 256.72333333333336
+  },
+  {
+    "backend": "TensorRT FP16",
+    "model_path": "weights/best.engine",
+    "total_frames": 300,
+    "warmup_frames": 30,
+    "mean_ms": 7.474349666687583,
+    "median_ms": 7.173050002165837,
+    "p95_ms": 9.720100002596155,
+    "p99_ms": 11.299100005999207,
+    "min_ms": 5.944700002146419,
+    "max_ms": 18.212799994216766,
+    "std_ms": 1.21299071312159,
+    "fps": 133.79090417148913,
+    "gpu_memory_mb": 4.8525390625,
+    "cpu_memory_mb": 2100.4453125,
+    "avg_detections": 257.77666666666664
+  }
+]

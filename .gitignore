@@ -205,3 +205,25 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Ignore the dataset (it's too big for Git)
+data/
+
+# Ignore the YOLO training artifacts
+runs/
+
+# Ignore the compiled TensorRT engines (they only work on your specific GPU anyway)
+models/*.engine
+
+# Ignore output videos
+outputs/*.mp4
+
+# Python cache and virtual environments
+__pycache__/
+venv/
+.ipynb_checkpoints/
+weights/best.engine
+weights/best.onnx
+.vscode/
+docs/train_results/
+samples/
