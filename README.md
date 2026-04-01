@@ -26,6 +26,9 @@ cd crowd_analytics
 pip install -r requirements.txt
 ```
 
+> [!NOTE]
+> The first time you run the script, `ultralytics` may automatically download tracking (e.g. `lap`) and inference dependencies (e.g. `tensorrt`). 
+
 
 ### 3. Model Weights
 Ensure your fine-tuned model (e.g., `best.engine` or `best.pt`) is placed in the `weights/` directory:
@@ -38,7 +41,7 @@ Ensure your fine-tuned model (e.g., `best.engine` or `best.pt`) is placed in the
 ### Option A: Standard Pipeline (OpenCV Window)
 Ideal for testing and saving an annotated video locally.
 ```bash
-python main.py
+python main.py --video samples/sample_video.mp4 --model weights/best.onnx
 ```
 - **Output**: An annotated video will be saved to `outputs/final_annotated.mp4`.
 - **Display**: Press `q` in the OpenCV window to stop early.
@@ -46,11 +49,27 @@ python main.py
 ### Option B: Web Intelligence Console (Gradio)
 The recommended way for operators to monitor the system live.
 ```bash
-python gradio_run.py
+python gradio_run.py --video samples/sample_video.mp4 --model weights/best.onnx
 ```
 1. Open the URL provided in the console (e.g., `http://127.0.0.1:7860`).
 2. Select your **Input Source** (Sample Video).
 3. Click **🚀 Start Inference**.
+
+### 🛠️ Advanced Usage: CLI Arguments
+Both `main.py` and `gradio_run.py` support command-line arguments to override default paths:
+
+| Argument | Description | Default |
+| --- | --- | --- |
+| `--config` | Path to zones configuration (YAML) | `configs/zones.yaml` |
+| `--model` | Path to YOLO model engine | `weights/best.engine` |
+| `--video` | Path to input video | `samples/sample_video.mp4` |
+| `--output` | Path to output annotated video | `outputs/final_annotated.mp4` |
+| `--log` | Path to alerts JSONL log file | `logs/alerts.jsonl` |
+
+**Example:**
+```bash
+python main.py --video samples/test_clip.mp4 --config configs/zones_v2.yaml
+```
 
 ---
 
@@ -79,5 +98,5 @@ zones:
 - **Structured Alerts**: `logs/alerts.jsonl` contains machine-readable JSON alert events for further integration.
 
 
-A sample video is given at [sample_video]](samples/sample_video.mp4)
+A sample video is given at [sample_video](samples/sample_video.mp4) and corresponding output at [sample_output](outputs/final_annotated.mp4)
 ---
