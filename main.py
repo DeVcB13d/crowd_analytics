@@ -1,6 +1,7 @@
 
 import queue
 import os
+import argparse
 import logging
 from src.ingest import VideoIngestor
 from src.inference import Inference
@@ -12,16 +13,25 @@ os.environ['KMP_DUPLICATE_LIB_OK'] = 'True' # Windows-specific fix for a common 
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Crowd Analytics Pipeline")
+    parser.add_argument("--config", type=str, default="configs/zones.yaml", help="Path to zones configuration")
+    parser.add_argument("--model", type=str, default="weights/best.engine", help="Path to YOLO model engine")
+    parser.add_argument("--video", type=str, default="samples/sample_video.mp4", help="Path to input video")
+    parser.add_argument("--output", type=str, default="outputs/final_annotated.mp4", help="Path to output annotated video")
+    parser.add_argument("--log", type=str, default="logs/alerts.jsonl", help="Path to alerts log file")
+    
+    args = parser.parse_args()
+
     # File Paths
-    CONFIG_PATH = "configs/zones.yaml"
-    MODEL_PATH = "weights/best.engine"
-    VIDEO_PATH = "samples/sample_video.mp4"
-    OUTPUT_VIDEO_PATH = "outputs/final_annotated.mp4"
-    LOG_PATH = "logs/alerts.jsonl"
+    CONFIG_PATH = args.config
+    MODEL_PATH = args.model
+    VIDEO_PATH = args.video
+    OUTPUT_VIDEO_PATH = args.output
+    LOG_PATH = args.log
 
     # Ensure output directories exist
-    os.makedirs("outputs", exist_ok=True)
-    os.makedirs("logs", exist_ok=True)
+    os.makedirs(os.path.dirname(OUTPUT_VIDEO_PATH) or ".", exist_ok=True)
+    os.makedirs(os.path.dirname(LOG_PATH) or ".", exist_ok=True)
 
     print("Initializing Pipeline...")
 

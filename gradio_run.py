@@ -8,11 +8,24 @@ import logging
 import pandas as pd
 import json
 import yaml
+import argparse
 from datetime import datetime
 from typing import List, Dict, Any
 
 # OPENMP Windows fix
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Crowd Analytics Gradio Interface")
+    parser.add_argument("--config", type=str, default="configs/zones.yaml", help="Path to zones configuration")
+    parser.add_argument("--model", type=str, default="weights/best.engine", help="Path to YOLO model engine")
+    parser.add_argument("--video", type=str, default="samples/sample_video.mp4", help="Path to input video")
+    parser.add_argument("--output", type=str, default="outputs/final_annotated.mp4", help="Path to output annotated video (Note: not used in live stream)")
+    parser.add_argument("--log", type=str, default="logs/alerts.jsonl", help="Path to alerts log file")
+    return parser.parse_known_args()[0]
+
+args = parse_args()
 
 import gradio as gr
 from src.ingest import VideoIngestor
@@ -28,15 +41,15 @@ class PipelineManager:
         self.threads = []
         self.stop_event = threading.Event()
         self.output_queue = queue.Queue(maxsize=30)
-        self.visualizer = Visualizer("configs/zones.yaml")
+        self.visualizer = Visualizer(args.config)
         
         # Load thresholds directly from config to avoid repeating logic
         try:
-            with open("configs/zones.yaml", 'r') as f:
+            with open(args.config, 'r') as f:
                 config = yaml.safe_load(f)
             self.thresholds = {name: data["threshold"] for name, data in config.get("zones", {}).items()}
         except Exception as e:
-            print(f"Failed to load thresholds: {e}")
+            print(f"Failed to load thresholds from {args.config}: {e}")
             self.thresholds = {}
 
     def stop(self):
@@ -62,7 +75,7 @@ def start_pipeline(video_choice):
     manager.stop_event.clear()
     
     # Path Mapping
-    video_path = "samples/pexels_videos_2740 (1080p).mp4" if "Sample" in video_choice else 0
+    video_path = args.video if "Sample" in video_choice else 0
     
     # Internal Queues
     frame_q = queue.Queue(maxsize=30)
@@ -70,8 +83,8 @@ def start_pipeline(video_choice):
     
     # Instantiate Workers (Using your existing classes)
     ingestor = VideoIngestor(video_path=video_path, output_queue=frame_q)
-    inference = Inference(model_path="weights/best.engine", input_queue=frame_q, output_queue=detect_q)
-    analytics = Analytics(config_path="configs/zones.yaml", input_queue=detect_q, output_queue=manager.output_queue)
+    inference = Inference(model_path=args.model, input_queue=frame_q, output_queue=detect_q)
+    analytics = Analytics(config_path=args.config, input_queue=detect_q, output_queue=manager.output_queue)
 
     # Start Threads
     manager.threads = [ingestor, inference, analytics]
@@ -91,8 +104,8 @@ def stream_vision():
     log_messages = []
     total_alerts = 0
     peak_count = 0
-    os.makedirs("logs", exist_ok=True)
-    log_file_path = "logs/alerts.jsonl"
+    os.makedirs(os.path.dirname(args.log) or ".", exist_ok=True)
+    log_file_path = args.log
     
     # Default values for outputs when waiting
     empty_df = pd.DataFrame(columns=["time", "count"])

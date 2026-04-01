@@ -16,22 +16,20 @@ A high-performance, multi-threaded pipeline for real-time person detection, trac
 ### 1. Prerequisites
 - Python 3.9+
 - NVIDIA GPU with CUDA/TensorRT support (recommended for real-time performance)
-- Windows 10/11 (Optimized for `ProactorEventLoop`)
+- 
 
 ### 2. Installation
 Clone the repository and install the required dependencies:
 ```bash
-git clone https://github.com/
+git clone https://github.com/DeVcB13d/crowd_analytics
 cd crowd_analytics
 pip install -r requirements.txt
 ```
 
-> [!NOTE]
-> Detailed requirements include: `ultralytics`, `gradio`, `opencv-python`, `shapely`, `pyyaml`, and `numpy`.
 
 ### 3. Model Weights
 Ensure your fine-tuned model (e.g., `best.engine` or `best.pt`) is placed in the `weights/` directory:
-- `weights/best.engine` (Default path used in `main.py` and `gradio_run.py`)
+- `weights/best.engine` or `weights/best.onnx` (Default path used in `main.py` and `gradio_run.py`)
 
 ---
 
@@ -51,7 +49,7 @@ The recommended way for operators to monitor the system live.
 python gradio_run.py
 ```
 1. Open the URL provided in the console (e.g., `http://127.0.0.1:7860`).
-2. Select your **Input Source** (Sample Video or Webcam).
+2. Select your **Input Source** (Sample Video).
 3. Click **🚀 Start Inference**.
 
 ---
@@ -59,7 +57,12 @@ python gradio_run.py
 ## ⚙️ Configuration
 
 ### Configuring Zones & Thresholds
-The system behavior is controlled via `configs/zones.yaml`. You can add, remove, or modify zones without touching the source code.
+The system behavior is controlled via `configs/zones.yaml`.
+
+I have added a helper to draw the polygon
+```bash
+python src/utils/zone_drawer.py --video <path_to_video>
+```
 
 ```yaml
 zones:
@@ -75,13 +78,6 @@ zones:
 - **Run Logs**: `logs/run.log` contains human-readable status updates and alerts.
 - **Structured Alerts**: `logs/alerts.jsonl` contains machine-readable JSON alert events for further integration.
 
+
+A sample video is given at [sample_video]](samples/sample_video.mp4)
 ---
-
-## 🏗️ System Architecture
-The system uses a **Parallelized Three-Thread Pipeline** to maximize throughput:
-1. **VideoIngestor**: Handles I/O-bound frame reading.
-2. **Inferencer**: Compute-bound YOLOv8+ByteTrack processing.
-3. **Analytics**: Business logic, zone calculations, and smoothing.
-4. **Main Thread**: Handles UI rendering and event loop management.
-
-This architecture ensures that inference latency doesn't block video reading, and the UI remains responsive even under heavy load.
