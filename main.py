@@ -15,7 +15,7 @@ def main():
     # File Paths
     CONFIG_PATH = "configs/zones.yaml"
     MODEL_PATH = "weights/best.engine"
-    VIDEO_PATH = "samples/pexels_videos_2740 (1080p).mp4"
+    VIDEO_PATH = "samples/sample_video.mp4"
     OUTPUT_VIDEO_PATH = "outputs/final_annotated.mp4"
     LOG_PATH = "logs/alerts.jsonl"
 

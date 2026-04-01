@@ -5,6 +5,10 @@ import threading
 import cv2
 import numpy as np
 import logging
+import pandas as pd
+import json
+import yaml
+from datetime import datetime
 from typing import List, Dict, Any
 
 # OPENMP Windows fix
@@ -25,6 +29,15 @@ class PipelineManager:
         self.stop_event = threading.Event()
         self.output_queue = queue.Queue(maxsize=30)
         self.visualizer = Visualizer("configs/zones.yaml")
+        
+        # Load thresholds directly from config to avoid repeating logic
+        try:
+            with open("configs/zones.yaml", 'r') as f:
+                config = yaml.safe_load(f)
+            self.thresholds = {name: data["threshold"] for name, data in config.get("zones", {}).items()}
+        except Exception as e:
+            print(f"Failed to load thresholds: {e}")
+            self.thresholds = {}
 
     def stop(self):
         self.stop_event.set()
@@ -38,6 +51,7 @@ class PipelineManager:
         while not self.output_queue.empty():
             try: self.output_queue.get_nowait()
             except: break
+        cv2.destroyAllWindows()
 
 manager = PipelineManager()
 
@@ -70,9 +84,22 @@ def start_pipeline(video_choice):
 def stream_vision():
     """Generator that yields data from the queue to the Gradio UI."""
     prev_time = time.time()
-    last_alert = "System Nominal"
-    last_frame = None
-    last_metrics = "Waiting for detections..."
+    start_time = time.time()
+    
+    # State tracking
+    history_data = []
+    log_messages = []
+    total_alerts = 0
+    peak_count = 0
+    os.makedirs("logs", exist_ok=True)
+    log_file_path = "logs/alerts.jsonl"
+    
+    # Default values for outputs when waiting
+    empty_df = pd.DataFrame(columns=["time", "count"])
+    df_plot = empty_df
+    metrics_html = "Waiting for stream..."
+    bars_html = "Waiting for zone data..."
+    logs_html = "Waiting for events..."
 
     try:
         while not manager.stop_event.is_set():
@@ -83,38 +110,119 @@ def stream_vision():
                 # 1. Process Image & Annotate
                 annotated_frame = manager.visualizer.draw(payload)
                 
-                # OPTIMIZATION: Downscale for the web to improve FPS
-                # Streaming 1080p over a websocket is very slow. 720p or 540p is better.
+                # OPTIMIZATION: Downscale to fit standard screens
                 h, w = annotated_frame.shape[:2]
                 if w > 1280:
                     scale = 1280 / w
                     annotated_frame = cv2.resize(annotated_frame, (1280, int(h * scale)))
 
-                frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
-                last_frame = frame_rgb
+                cv2.imshow("Crowd Analytics Live Feed", annotated_frame)
+                cv2.waitKey(1)
                 
                 # 2. Performance Tracking
                 curr_time = time.time()
                 fps = 1 / (curr_time - prev_time) if (curr_time - prev_time) > 0 else 0
                 prev_time = curr_time
                 
-                # 3. Format Zone Metrics & Flow
-                stats_lines = []
-                for zone, count in payload.zone_counts.items():
-                    flow = payload.zone_flows.get(zone, "N/A")
-                    stats_lines.append(f"📍 {zone.upper()}\n   Count: {count} | Flow: {flow}")
+                # Metrics Extraction
+                total_count = sum(payload.zone_counts.values())
+                peak_count = max(peak_count, total_count)
                 
-                last_metrics = "\n\n".join(stats_lines) if stats_lines else "No zones active"
-
-                # 4. Handle Alerts
+                # Update Sparkline Data
+                elapsed_time = curr_time - start_time
+                history_data.append({"time": elapsed_time, "count": total_count})
+                # Keep only last 30 seconds
+                history_data = [d for d in history_data if elapsed_time - d["time"] <= 30]
+                df_plot = pd.DataFrame(history_data) if history_data else empty_df
+                
+                # Update Ops Panel HTML: 4 Metric Cards
+                metrics_html = f"""
+                <div style="display: flex; justify-content: space-between; text-align: center; background: #222; padding: 10px; border-radius: 8px;">
+                    <div style="flex: 1;">
+                        <span style="font-size: 14px; color: #aaa; text-transform: uppercase;">Alerts</span><br/>
+                        <span style="font-size: 28px; font-weight: bold; color: {'#ff4a4a' if total_alerts > 0 else '#fff'};">{total_alerts}</span>
+                    </div>
+                    <div style="flex: 1;">
+                        <span style="font-size: 14px; color: #aaa; text-transform: uppercase;">Total</span><br/>
+                        <span style="font-size: 28px; font-weight: bold; color: #fff;">{total_count}</span>
+                    </div>
+                    <div style="flex: 1;">
+                        <span style="font-size: 14px; color: #aaa; text-transform: uppercase;">Peak</span><br/>
+                        <span style="font-size: 28px; font-weight: bold; color: #fff;">{peak_count}</span>
+                    </div>
+                    <div style="flex: 1;">
+                        <span style="font-size: 14px; color: #aaa; text-transform: uppercase;">FPS</span><br/>
+                        <span style="font-size: 28px; font-weight: bold; color: #fff;">{fps:.1f}</span>
+                    </div>
+                </div>
+                """
+                
+                # Update Ops Panel HTML: Per-zone Occupancy Bars
+                bars_html = '<div style="background: #222; padding: 15px; border-radius: 8px;">'
+                bars_html += '<h3 style="margin-top:0; color:#fff; font-size:16px;">Zone Occupancy</h3>'
+                for zone, count in payload.zone_counts.items():
+                    threshold = manager.thresholds.get(zone, 20)
+                    pct = min(count / threshold * 100, 100) if threshold > 0 else 0
+                    
+                    if count >= threshold:
+                        color = "#ff4a4a" # critical
+                    elif count >= threshold * 0.75:
+                        color = "#ffae42" # warn
+                    else:
+                        color = "#4caf50" # safe
+                        
+                    bars_html += f"""
+                    <div style="margin-bottom: 12px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                            <span style="font-weight: bold; color: #eee; font-size: 14px;">{zone}</span>
+                        </div>
+                        <div style="background-color: #444; width: 100%; height: 10px; border-radius: 5px; overflow: hidden;">
+                            <div style="background-color: {color}; width: {pct}%; height: 100%; transition: width 0.3s ease;"></div>
+                        </div>
+                    </div>
+                    """
+                bars_html += '</div>'
+                
+                # Log JSONL stream and Handle Alerts
                 if payload.alerts:
-                    last_alert = f"⚠️ ALERT: " + " | ".join(payload.alerts)
+                    for alert_msg in payload.alerts:
+                        zone_name = "System"
+                        for z in manager.thresholds.keys():
+                            if z in alert_msg:
+                                zone_name = z
+                                break
+                        
+                        log_entry = {
+                            "timestamp": datetime.now().isoformat(),
+                            "zone_name": zone_name,
+                            "event": "threshold_exceeded",
+                            "message": alert_msg
+                        }
+                        
+                        # Write to JSONL file
+                        with open(log_file_path, 'a') as f:
+                            f.write(json.dumps(log_entry) + '\\n')
+                        
+                        # Add to UI logs memory (keep last 50)
+                        total_alerts += 1
+                        badge = '<span style="background:#ff4a4a; color:white; padding:2px 6px; border-radius:3px; font-size:12px; font-weight:bold;">CRITICAL</span>'
+                        time_str = datetime.now().strftime("%H:%M:%S")
+                        log_messages.insert(0, f"[{time_str}] {badge} {alert_msg}")
+                        
+                log_messages = log_messages[:50]
+                
+                logs_html = f"""
+                <div style="background: #111; color: #0f0; font-family: monospace; padding: 10px; border-radius: 8px; height: 250px; overflow-y: auto; font-size: 13px;">
+                    {"<br/>".join(log_messages) if log_messages else "Waiting for events..."}
+                </div>
+                """
                 
                 yield (
-                    frame_rgb,
-                    last_metrics,
-                    last_alert,
-                    f"Throughput: {fps:.1f} FPS"
+                    metrics_html,
+                    bars_html,
+                    df_plot,
+                    logs_html,
+                    "Pipeline Status: RUNNING"
                 )
                 
                 # OPTIONAL: Reduced Throttling
@@ -122,13 +230,13 @@ def stream_vision():
 
             except queue.Empty:
                 # If the queue is empty, just yield the last state to keep the UI alive
-                if last_frame is not None:
-                    yield (
-                        last_frame,
-                        last_metrics,
-                        last_alert,
-                        "Throughput: 0 FPS (Waiting...)"
-                    )
+                yield (
+                    metrics_html,
+                    bars_html,
+                    df_plot if 'df_plot' in locals() else empty_df,
+                    logs_html,
+                    "Pipeline Status: RUNNING (Waiting...)"
+                )
                 continue
             except Exception as e:
                 print(f"Streaming Error: {e}")
@@ -142,23 +250,22 @@ def stream_vision():
 
 def stop_pipeline():
     manager.stop()
-    return "Pipeline Status: STOPPED", None, "System Cleared", "Throughput: 0 FPS"
+    empty_df = pd.DataFrame(columns=["time", "count"])
+    metrics = "Pipeline Stopped."
+    bars = "Pipeline Stopped."
+    logs = "Pipeline Stopped."
+    return metrics, bars, empty_df, logs, "Pipeline Status: STOPPED"
 
 # --- Gradio UI Definition ---
 
-with gr.Blocks(theme=gr.themes.Default(primary_hue="orange"), title="VariPhi AI Console") as demo:
+with gr.Blocks(title="VariPhi AI Console") as demo:
     gr.Markdown("# Crowd Analytics")
     
     with gr.Row():
-        # Left Side: Video and Alerts
+        # Left Side: Controls
         with gr.Column(scale=3):
-            video_output = gr.Image(label="Annotated Live Feed")
-            alert_banner = gr.Label(value="System Initialized", label="Security Events")
-            
-        # Right Side: Metrics and Controls
-        with gr.Column(scale=1):
+            gr.Markdown("### Application Controls")
             status_label = gr.Markdown("Pipeline Status: IDLE")
-            fps_box = gr.Markdown("Throughput: 0 FPS")
             
             stream_input = gr.Dropdown(
                 choices=["Sample Video", "Webcam / Live Stream"], 
@@ -171,13 +278,47 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="orange"), title="VariPhi AI 
                 stop_btn = gr.Button("🛑 Stop")
             
             gr.Markdown("---")
-            gr.Markdown("### 📊 Zone Analytics")
-            zone_details = gr.Textbox(
-                label="Live Occupancy & Directional Flow", 
-                lines=15, 
-                max_lines=20,
-                interactive=False
+            gr.Markdown("> *Note: The Live Video Feed will pop up in a dedicated OpenCV Window.*")
+            
+        # Right Side: Live Ops Dashboard
+        with gr.Column(scale=2):
+            gr.Markdown("### 📊 Live Ops Dashboard")
+            
+            # 1. Metric Cards
+            metrics_html_component = gr.HTML(value="""
+            <div style="display: flex; justify-content: space-between; text-align: center; background: #222; padding: 10px; border-radius: 8px;">
+                <div style="flex: 1;"><span style="font-size: 14px; color: #aaa;">ALERTS</span><br/><span style="font-size: 28px; color: #fff;">0</span></div>
+                <div style="flex: 1;"><span style="font-size: 14px; color: #aaa;">TOTAL</span><br/><span style="font-size: 28px; color: #fff;">0</span></div>
+                <div style="flex: 1;"><span style="font-size: 14px; color: #aaa;">PEAK</span><br/><span style="font-size: 28px; color: #fff;">0</span></div>
+                <div style="flex: 1;"><span style="font-size: 14px; color: #aaa;">FPS</span><br/><span style="font-size: 28px; color: #fff;">0.0</span></div>
+            </div>
+            """)
+            
+            # 2. Occupancy Bars
+            bars_html_component = gr.HTML(value="""
+            <div style="background: #222; padding: 15px; border-radius: 8px;">
+                <h3 style="margin-top:0; color:#fff; font-size:16px;">Zone Occupancy</h3>
+                <p style="color:#aaa;">Waiting for data...</p>
+            </div>
+            """)
+            
+            # 3. Sparkline Plot
+            empty_df = pd.DataFrame(columns=["time", "count"])
+            plot_component = gr.LinePlot(
+                value=empty_df, 
+                x="time", 
+                y="count", 
+                title="Crowd Trajectory (30s Rolling)", 
+                height=250
             )
+            
+            # 4. JSONL Stream Viewer
+            gr.Markdown("### JSONL Event Stream")
+            logs_html_component = gr.HTML(value="""
+                <div style="background: #111; color: #0f0; font-family: monospace; padding: 10px; border-radius: 8px; height: 250px; overflow-y: auto; font-size: 13px;">
+                    Waiting for events...
+                </div>
+            """)
 
     # --- Event Wiring ---
     
@@ -188,15 +329,18 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="orange"), title="VariPhi AI 
         outputs=[status_label]
     ).then(
         fn=stream_vision, 
-        outputs=[video_output, zone_details, alert_banner, fps_box]
+        outputs=[metrics_html_component, bars_html_component, plot_component, logs_html_component, status_label]
     )
     
     # 2. Stop logic: Trigger stop and reset UI components
     stop_btn.click(
         fn=stop_pipeline, 
-        outputs=[status_label, video_output, alert_banner, fps_box]
+        outputs=[metrics_html_component, bars_html_component, plot_component, logs_html_component, status_label]
     )
 
 if __name__ == "__main__":
     # Change share=True if you want to generate a public URL for the operator
-    demo.launch(show_error=True)
+    demo.launch(
+        show_error=True, 
+        theme=gr.themes.Default(primary_hue="orange")
+    )

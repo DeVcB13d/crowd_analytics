@@ -226,4 +226,4 @@ weights/best.engine
 weights/best.onnx
 .vscode/
 docs/train_results/
-samples/
+logs/alerts.jsonl

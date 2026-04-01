@@ -32,17 +32,15 @@ class VideoIngestor(threading.Thread):
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
-                # Video ended or error: Re-open it for seamless looping
                 cap.release()
                 cap = cv2.VideoCapture(self.video_path)
                 ret, frame = cap.read()
                 if not ret:
-                    break # Really can't read it
+                    break 
             
             # Create the standardized payload
             payload = FramePayload(frame_id=frame_id, image=frame)
             
-            # Put it on the conveyor belt. 
             self.output_queue.put(payload)
             frame_id += 1
             
